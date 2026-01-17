@@ -4,10 +4,20 @@ import { v } from 'convex/values'
 export default defineSchema({
   projects: defineTable({
     name: v.string(),
+    selectedEnvironmentId: v.optional(v.id('environments')), // Track active env
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index('by_createdAt', ['createdAt']),
+
+  environments: defineTable({
+    projectId: v.id('projects'),
+    name: v.string(),
+    variables: v.any(), // { "API_KEY": "value", "BASE_URL": "value", ... }
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_projectId', ['projectId']),
 
   requests: defineTable({
     projectId: v.id('projects'),
@@ -22,9 +32,9 @@ export default defineSchema({
       v.literal('OPTIONS')
     ),
     url: v.string(),
-    headers: v.any(), // Dynamic key-value pairs
-    queryParams: v.any(),
-    body: v.optional(v.string()),
+    headers: v.any(), // Can contain {{VAR}} templates
+    queryParams: v.any(), // Can contain {{VAR}} templates
+    body: v.optional(v.string()), // Can contain {{VAR}} templates
     tagIds: v.array(v.id('tags')),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -44,8 +54,8 @@ export default defineSchema({
     ),
     icon: v.optional(v.string()),
     description: v.optional(v.string()),
-    headers: v.any(),
-    queryParams: v.any(),
+    headers: v.any(), // Can contain {{VAR}} templates
+    queryParams: v.any(), // Can contain {{VAR}} templates
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -54,20 +64,19 @@ export default defineSchema({
   history: defineTable({
     projectId: v.id('projects'),
     requestId: v.id('requests'),
+    environmentId: v.optional(v.id('environments')), // Track which env was used
     method: v.string(),
     url: v.string(),
-    // Resolved values after tag merging
     resolvedUrl: v.string(),
     resolvedHeaders: v.any(),
     resolvedQueryParams: v.any(),
     resolvedBody: v.optional(v.string()),
-    // Response data
     status: v.optional(v.number()),
     statusText: v.optional(v.string()),
     responseHeaders: v.optional(v.any()),
     responseBody: v.optional(v.string()),
     error: v.optional(v.string()),
-    duration: v.number(), // milliseconds
+    duration: v.number(),
     timestamp: v.number(),
     createdAt: v.number(),
   })
@@ -78,7 +87,7 @@ export default defineSchema({
   shares: defineTable({
     projectId: v.id('projects'),
     historyId: v.id('history'),
-    shareToken: v.string(), // unique token for public access
+    shareToken: v.string(),
     isPublic: v.boolean(),
     createdAt: v.number(),
   })

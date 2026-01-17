@@ -13,11 +13,15 @@ import { Separator } from '@/components/ui/separator'
 import { TagBadge, TagSelector, PolicyPreview } from '@/components/tags'
 import { KeyValueEditor } from './KeyValueEditor'
 import { JsonInputEditor } from './JsonInputEditor'
+import { EnvironmentPreview } from './EnvironmentPreview'
+import { UrlInput } from './UrlInput'
+import { EnvironmentVariables } from './EnvironmentVariables'
 
 interface RequestEditorProps {
 	request: Partial<Request>
 	onRequestChange: (request: Partial<Request>) => void
 	allTags: Tag[]
+	environmentVariables?: Record<string, string>
 	onSend: () => void
 	isLoading?: boolean
 }
@@ -28,6 +32,7 @@ export function RequestEditor({
 	request,
 	onRequestChange,
 	allTags,
+	environmentVariables,
 	onSend,
 	isLoading = false,
 }: RequestEditorProps) {
@@ -80,12 +85,18 @@ export function RequestEditor({
 						</label>
 						<Select
 							value={request.method || 'GET'}
-							onValueChange={(value) =>
-								onRequestChange({
+							onValueChange={(value) => {
+								const newMethod = value as Request['method']
+								const updates: Partial<Request> = {
 									...request,
-									method: value as Request['method'],
-								})
-							}
+									method: newMethod,
+								}
+								// Reset body when switching to GET, HEAD, or OPTIONS
+								if (['GET', 'HEAD', 'OPTIONS'].includes(newMethod)) {
+									updates.body = undefined
+								}
+								onRequestChange(updates)
+							}}
 						>
 							<SelectTrigger className="mt-1">
 								<SelectValue />
@@ -102,14 +113,20 @@ export function RequestEditor({
 
 					<div>
 						<label className="font-medium text-foreground text-sm">URL</label>
-						<Input
+						<UrlInput
 							placeholder="https://api.example.com/users"
 							value={request.url || ''}
-							onChange={(e) =>
-								onRequestChange({ ...request, url: e.target.value })
+							onChange={(url) =>
+								onRequestChange({ ...request, url })
 							}
 							className="mt-1"
 						/>
+						{/* Show available environment variables */}
+						{environmentVariables && Object.keys(environmentVariables).length > 0 && (
+							<div className="mt-2">
+								<EnvironmentVariables variables={environmentVariables} />
+							</div>
+						)}
 					</div>
 				</div>
 			</div>
@@ -226,6 +243,22 @@ export function RequestEditor({
       )}
 
 			<Separator />
+
+			{/* Environment Preview */}
+			{environmentVariables && Object.keys(environmentVariables).length > 0 && (
+				<div className="space-y-3">
+					<h3 className="font-semibold">Final Request (After Variables)</h3>
+					<EnvironmentPreview
+						variables={environmentVariables}
+						request={{
+							url: request.url || '',
+							headers: request.headers || {},
+							queryParams: request.queryParams || {},
+							body: request.body,
+						}}
+					/>
+				</div>
+			)}
 
 			{/* Policy Preview */}
 			{selectedTags.length > 0 && (

@@ -1,4 +1,4 @@
-import { useAction, useMutation, useQuery } from 'convex/react'
+import { useMutation, useQuery } from 'convex/react'
 import { api } from '../../convex/_generated/api'
 import type { Id } from '../../convex/_generated/dataModel'
 
@@ -57,9 +57,8 @@ export function useDeleteTag() {
 }
 
 // Execution & History
-export function useExecuteRequest() {
-  return useAction(api.execution.executeRequest)
-}
+// Note: Request execution is now done client-side (see src/lib/requestExecution.ts)
+// This hook is no longer needed
 
 export function useHistory(projectId: Id<'projects'> | null) {
   return useQuery(
@@ -72,6 +71,10 @@ export function useDeleteHistory() {
   return useMutation(api.execution.deleteHistory)
 }
 
+export function useSaveHistory() {
+  return useMutation(api.execution.saveHistory)
+}
+
 // Shares
 export function useCreateShare() {
   return useMutation(api.shares.createShare)
@@ -80,3 +83,26 @@ export function useCreateShare() {
 export function useDeleteShare() {
   return useMutation(api.shares.deleteShare)
 }
+// Environments
+export function useEnvironmentsByProject(projectId: Id<'projects'> | null) {
+	return useQuery(
+	  api.environments.listEnvironments,
+	  projectId ? { projectId } : 'skip'
+	)
+  }
+  
+  export function useCreateEnvironment() {
+	return useMutation(api.environments.createEnvironment)
+  }
+  
+  export function useUpdateEnvironment() {
+	return useMutation(api.environments.updateEnvironment)
+  }
+  
+  export function useDeleteEnvironment() {
+	return useMutation(api.environments.deleteEnvironment)
+  }
+  
+  export function useSetActiveEnvironment() {
+	return useMutation(api.environments.setActiveEnvironment)
+  }

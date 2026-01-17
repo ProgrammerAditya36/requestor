@@ -8,11 +8,13 @@
  * @module
  */
 
+import type * as environments from "../environments.js";
 import type * as execution from "../execution.js";
 import type * as projects from "../projects.js";
 import type * as requests from "../requests.js";
 import type * as shares from "../shares.js";
 import type * as tags from "../tags.js";
+import type * as templates from "../templates.js";
 
 import type {
   ApiFromModules,
@@ -21,11 +23,13 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  environments: typeof environments;
   execution: typeof execution;
   projects: typeof projects;
   requests: typeof requests;
   shares: typeof shares;
   tags: typeof tags;
+  templates: typeof templates;
 }>;
 
 /**

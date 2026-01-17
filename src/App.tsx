@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { ConvexProvider, ConvexReactClient } from 'convex/react'
 import type {  Request } from '@/lib/types'
 import {
@@ -10,6 +10,8 @@ import { Layout } from '@/components/Layout'
 import { RequestEditor } from '@/components/RequestEditor'
 import { ResponseViewer } from '@/components/ResponseViewer'
 import { HistoryPanel } from '@/components/HistoryPanel'
+import { EnvironmentSelector } from '@/components/EnvironmentSelector'
+import { EnvironmentPage } from '@/components/EnvironmentPage'
 import {
   useProjects,
   useCreateProject,
@@ -19,13 +21,21 @@ import {
   useDeleteRequest,
   useUpdateRequest,
   useTags,
-  useExecuteRequest,
   useHistory,
   useDeleteHistory,
+  useSaveHistory,
+  useEnvironmentsByProject,
+  useCreateEnvironment,
+  useUpdateEnvironment,
+  useDeleteEnvironment,
+  useSetActiveEnvironment,
 } from '../src/hooks/useConvex'
+import { executeRequestClient } from '@/lib/requestExecution'
 import type { Id } from '../convex/_generated/dataModel'
 
-const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL)
+const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL, {
+  unsavedChangesWarning: false,
+})
 
 interface HistoryEntry {
   id: Id<'history'>
@@ -36,12 +46,16 @@ interface HistoryEntry {
   duration: number
 }
 
+type View = 'requests' | 'environments'
+
 function AppContent() {
+  const [view, setView] = useState<View>('requests')
   const [selectedProjectId, setSelectedProjectId] = useState<Id<'projects'> | null>(null)
   const [selectedRequestId, setSelectedRequestId] = useState<Id<'requests'> | null>(null)
   const [selectedHistoryId, setSelectedHistoryId] = useState<Id<'history'> | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  const [localRequest, setLocalRequest] = useState<Partial<Request> | null>(null)
   const [response, setResponse] = useState<{
     status?: number
     statusText?: string
@@ -55,6 +69,11 @@ function AppContent() {
   const requests = useRequestsByProject(selectedProjectId)
   const tags = useTags()
   const history = useHistory(selectedProjectId)
+  const environments = useEnvironmentsByProject(selectedProjectId)
+  const createEnvironment = useCreateEnvironment()
+  const updateEnvironment = useUpdateEnvironment()
+  const deleteEnvironment = useDeleteEnvironment()
+  const setActiveEnvironment = useSetActiveEnvironment()
 
   // Convex mutations
   const createProject = useCreateProject()
@@ -62,9 +81,58 @@ function AppContent() {
   const createRequest = useCreateRequest()
   const deleteRequest = useDeleteRequest()
   const updateRequest = useUpdateRequest()
-  const executeRequest = useExecuteRequest()
   const deleteHistory = useDeleteHistory()
-
+  const saveHistory = useSaveHistory()
+  const currentProject = projects?.find(p => p._id === selectedProjectId)
+  const handleCreateEnvironment = async (name: string, variables: Record<string, string>) => {
+    if (!selectedProjectId) return
+    try {
+      await createEnvironment({
+        projectId: selectedProjectId,
+        name,
+        variables,
+      })
+    } catch (error) {
+      console.error('Failed to create environment:', error)
+      alert('Failed to create environment')
+    }
+  }
+  const handleUpdateEnvironment = async (envId: Id<'environments'>, name?: string, variables?: Record<string, string>) => {
+    try {
+      await updateEnvironment({
+        environmentId: envId,
+        ...(name && { name }),
+        ...(variables && { variables }),
+      })
+    } catch (error) {
+      console.error('Failed to update environment:', error)
+      alert('Failed to update environment')
+    }
+  }
+  
+  const handleDeleteEnvironment = async (envId: Id<'environments'>) => {
+    if (confirm('Delete this environment?')) {
+      try {
+        await deleteEnvironment({ environmentId: envId })
+      } catch (error) {
+        console.error('Failed to delete environment:', error)
+        alert('Failed to delete environment')
+      }
+    }
+  }
+  
+  const handleSetActiveEnvironment = async (envId: Id<'environments'> | undefined) => {
+    if (!selectedProjectId) return
+    try {
+      await setActiveEnvironment({
+        projectId: selectedProjectId,
+        environmentId: envId,
+      })
+    } catch (error) {
+      console.error('Failed to set environment:', error)
+      alert('Failed to set environment')
+    }
+  }
   // Set first project as selected on load
   useEffect(() => {
     if (projects && projects.length > 0 && !selectedProjectId) {
@@ -95,6 +163,27 @@ function AppContent() {
   }, [])
 
   const currentRequest = requests?.find((r) => r._id === selectedRequestId)
+
+  // Sync local request state when selected request changes
+  useEffect(() => {
+    if (currentRequest) {
+      setLocalRequest({
+        id: currentRequest._id,
+        projectId: currentRequest.projectId,
+        name: currentRequest.name,
+        method: currentRequest.method,
+        url: currentRequest.url,
+        headers: currentRequest.headers || {},
+        queryParams: currentRequest.queryParams || {},
+        body: currentRequest.body,
+        tagIds: currentRequest.tagIds || [],
+        createdAt: currentRequest.createdAt,
+        updatedAt: currentRequest.updatedAt,
+      })
+    } else {
+      setLocalRequest(null)
+    }
+  }, [currentRequest])
 
   const handleNewProject = async () => {
     const name = prompt('Project name:')
@@ -157,42 +246,87 @@ function AppContent() {
     }
   }
 
-  const handleUpdateRequest = async (updated: Partial<Request>) => {
-    if (!selectedRequestId) return
-    try {
-      await updateRequest({
-        requestId: selectedRequestId,
-        ...(updated.name && { name: updated.name }),
-        ...(updated.method && { method: updated.method }),
-        ...(updated.url && { url: updated.url }),
-        ...(updated.headers && { headers: updated.headers }),
-        ...(updated.queryParams && { queryParams: updated.queryParams }),
-        ...(updated.body !== undefined && { body: updated.body }),
-        ...(updated.tagIds && { tagIds: updated.tagIds.map((id) => id as Id<'tags'>) }),
-      })
-    } catch (error) {
-      console.error('Failed to update request:', error)
-      alert('Failed to update request')
-    }
-  }
+  // Update local state only - no database mutations on typing
+  const handleUpdateRequest = useCallback((updated: Partial<Request>) => {
+    if (!localRequest) return
+    setLocalRequest({ ...localRequest, ...updated })
+  }, [localRequest])
 
   const handleSendRequest = async () => {
-    if (!selectedProjectId || !selectedRequestId || !currentRequest) return
+    if (!selectedProjectId || !selectedRequestId || !localRequest) return
+
+    // Save request to database before sending
+    try {
+      const methodsWithoutBody = ['GET', 'HEAD', 'OPTIONS']
+      const canHaveBody = !methodsWithoutBody.includes(localRequest.method || 'GET')
+      
+      await updateRequest({
+        requestId: selectedRequestId,
+        ...(localRequest.name && { name: localRequest.name }),
+        ...(localRequest.method && { method: localRequest.method }),
+        ...(localRequest.url && { url: localRequest.url }),
+        ...(localRequest.headers && { headers: localRequest.headers }),
+        ...(localRequest.queryParams && { queryParams: localRequest.queryParams }),
+        // Only save body if method allows it, otherwise set to undefined to clear it
+        ...(canHaveBody && localRequest.body !== undefined 
+          ? { body: localRequest.body }
+          : { body: undefined }),
+        ...(localRequest.tagIds && { tagIds: (localRequest.tagIds as string[]).map((id) => id as Id<'tags'>) }),
+      })
+    } catch (error) {
+      console.error('Failed to save request:', error)
+      // Continue anyway - user might want to send even if save fails
+    }
 
     setIsLoading(true)
     setResponse({})
 
     try {
-      const result = await executeRequest({
-        projectId: selectedProjectId,
-        requestId: selectedRequestId,
-        method: currentRequest.method,
-        url: currentRequest.url,
-        headers: currentRequest.headers,
-        queryParams: currentRequest.queryParams,
-        body: currentRequest.body,
-        tagIds: currentRequest.tagIds,
+      // Get environment variables if selected
+      const environmentVariables = currentProject?.selectedEnvironmentId
+        ? environments?.find((e) => e._id === currentProject.selectedEnvironmentId)?.variables
+        : undefined
+
+      // Get tag data for selected tags
+      const selectedTags = mappedTags.filter((t) => localRequest.tagIds?.includes(t.id))
+      const tagHeaders = selectedTags.map((t) => t.headers || {})
+      const tagParams = selectedTags.map((t) => t.queryParams || {})
+
+      // Execute request on client side
+      const result = await executeRequestClient({
+        url: localRequest.url || '',
+        method: localRequest.method || 'GET',
+        headers: localRequest.headers || {},
+        queryParams: localRequest.queryParams || {},
+        body: localRequest.body,
+        environmentVariables,
+        tagHeaders,
+        tagParams,
       })
+
+      // Save history to database
+      try {
+        await saveHistory({
+          projectId: selectedProjectId,
+          requestId: selectedRequestId,
+          environmentId: currentProject?.selectedEnvironmentId,
+          method: localRequest.method || 'GET',
+          url: localRequest.url || '',
+          resolvedUrl: result.resolvedUrl,
+          resolvedHeaders: result.resolvedHeaders,
+          resolvedQueryParams: result.resolvedQueryParams,
+          resolvedBody: result.resolvedBody,
+          status: result.status,
+          statusText: result.statusText,
+          responseHeaders: result.headers,
+          responseBody: result.body,
+          error: result.error,
+          duration: result.duration,
+        })
+      } catch (historyError) {
+        console.error('Failed to save history:', historyError)
+        // Continue even if history save fails
+      }
 
       if (result.success) {
         setResponse({
@@ -284,15 +418,38 @@ function AppContent() {
       isSidebarCollapsed={isSidebarCollapsed}
       onToggleSidebarCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
     >
-      {/* Main Content Area with Resizable Panels */}
-      <Group orientation="horizontal" className="flex-1">
+      {view === 'environments' ? (
+        <EnvironmentPage
+          environments={environments || []}
+          selectedEnvironmentId={currentProject?.selectedEnvironmentId}
+          onSelectEnvironment={handleSetActiveEnvironment}
+          onCreateEnvironment={handleCreateEnvironment}
+          onUpdateEnvironment={handleUpdateEnvironment}
+          onDeleteEnvironment={handleDeleteEnvironment}
+          onBack={() => setView('requests')}
+        />
+      ) : (
+        /* Main Content Area with Resizable Panels */
+        <Group orientation="horizontal" className="flex-1">
         {/* Left: Request Editor */}
         <Panel defaultSize={60} minSize={30}>
           <div className="flex flex-col h-full overflow-hidden">
             <div className="flex-1 p-6 overflow-y-auto">
               {currentRequest ? (
-                <RequestEditor
-                  request={{
+                <>
+                  <div className="flex justify-between items-center mb-4">
+                    <h2 className="font-semibold text-lg">Request</h2>
+                    {selectedProjectId && (
+                      <EnvironmentSelector
+                        environments={environments || []}
+                        selectedEnvironmentId={currentProject?.selectedEnvironmentId}
+                        onSelectEnvironment={handleSetActiveEnvironment}
+                        onManageEnvironments={() => setView('environments')}
+                      />
+                    )}
+                  </div>
+                  <RequestEditor
+                  request={localRequest || {
                     id: currentRequest._id,
                     projectId: currentRequest.projectId,
                     name: currentRequest.name,
@@ -307,9 +464,17 @@ function AppContent() {
                   }}
                   onRequestChange={handleUpdateRequest}
                   allTags={mappedTags}
+                  environmentVariables={
+                    currentProject?.selectedEnvironmentId
+                      ? environments?.find(
+                          (e) => e._id === currentProject.selectedEnvironmentId
+                        )?.variables
+                      : undefined
+                  }
                   onSend={handleSendRequest}
                   isLoading={isLoading}
                 />
+                </>
               ) : (
                 <p className="text-muted-foreground">
                   Select or create a request
@@ -357,6 +522,7 @@ function AppContent() {
           </Group>
         </Panel>
       </Group>
+      )}
     </Layout>
   )
 }

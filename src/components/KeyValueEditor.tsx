@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { X, Plus } from 'lucide-react'
@@ -15,17 +16,44 @@ export function KeyValueEditor({
   onChange,
   placeholder = 'Value',
 }: KeyValueEditorProps) {
-  const entries = Object.entries(pairs)
+  // Use index-based stable IDs that don't change when keys change
+  const entriesWithKeys = useMemo(() => {
+    return Object.entries(pairs).map(([key, value], index) => ({
+      id: index, // Use index as stable ID
+      key,
+      value,
+    }))
+  }, [pairs])
 
-  const updatePair = (index: number, key: string, value: string) => {
-    const newEntries = [...entries]
-    newEntries[index] = [key, value]
-    onChange(Object.fromEntries(newEntries))
+  const updatePair = (id: number, newKey: string, newValue: string) => {
+    const entries = Object.entries(pairs)
+    const updatedPairs: Record<string, string> = {}
+    
+    // Update the entry at the given index
+    entries.forEach((entry, index) => {
+      if (index === id) {
+        if (newKey) {
+          updatedPairs[newKey] = newValue
+        }
+      } else {
+        updatedPairs[entry[0]] = entry[1]
+      }
+    })
+    
+    onChange(updatedPairs)
   }
 
-  const removePair = (index: number) => {
-    const newEntries = entries.filter((_, i) => i !== index)
-    onChange(Object.fromEntries(newEntries))
+  const removePair = (id: number) => {
+    const entries = Object.entries(pairs)
+    const updatedPairs: Record<string, string> = {}
+    
+    entries.forEach((entry, index) => {
+      if (index !== id) {
+        updatedPairs[entry[0]] = entry[1]
+      }
+    })
+    
+    onChange(updatedPairs)
   }
 
   const addPair = () => {
@@ -36,22 +64,22 @@ export function KeyValueEditor({
     <div className="space-y-2">
       <label className="font-medium text-foreground text-sm">{label}</label>
       <div className="space-y-2">
-        {entries.map(([key, value], index) => (
-          <div key={index} className="flex gap-2">
+        {entriesWithKeys.map((entry) => (
+          <div key={entry.id} className="flex gap-2">
             <Input
               placeholder="Key"
-              value={key}
-              onChange={(e) => updatePair(index, e.target.value, value)}
+              value={entry.key}
+              onChange={(e) => updatePair(entry.id, e.target.value, entry.value)}
               className="flex-1"
             />
             <Input
               placeholder={placeholder}
-              value={value}
-              onChange={(e) => updatePair(index, key, e.target.value)}
+              value={entry.value}
+              onChange={(e) => updatePair(entry.id, entry.key, e.target.value)}
               className="flex-1"
             />
             <Button
-              onClick={() => removePair(index)}
+              onClick={() => removePair(entry.id)}
               variant="ghost"
               size="sm"
               className="px-2"
